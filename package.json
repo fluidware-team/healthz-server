@@ -1,6 +1,6 @@
 {
   "name": "@fluidware-it/healthz-server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "main": "build/src/index.js",
   "module": "build/esm/index.js",
   "esnext": "build/esnext/index.js",
@@ -17,7 +17,10 @@
     "preversion": "npm run lint && npm run test",
     "test": "jest"
   },
-  "keywords": ["server", "healthz"],
+  "keywords": [
+    "server",
+    "healthz"
+  ],
   "author": "Michele (macno) Azzolari",
   "license": "ISC",
   "description": "Simple http server to expose an healthz endpoint",
