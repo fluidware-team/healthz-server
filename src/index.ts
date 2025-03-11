@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { createServer, Server } from 'http';
-import { AddressInfo, checkFunction, HealthzServerOptions } from './types';
+import { createServer, Server, ServerResponse } from 'http';
+import { AddressInfo, healthCheckFunction, HealthzServerOptions, readinessCheckFunction } from './types';
 
 const healthServerSymbol = Symbol.for('Fw.HealthzServer');
 
@@ -26,53 +26,105 @@ type FWGlobal = {
 const _global = global as unknown as FWGlobal;
 
 const defaultOptions: HealthzServerOptions = {
-  path: '/healthz',
+  healthzPath: '/healthz',
+  readinessPath: '/',
   address: '0.0.0.0',
   port: 8282
 };
 
 export class HealthzServer {
-  static async start(
-    opts?: HealthzServerOptions | checkFunction,
-    healthCheck?: checkFunction
-  ): Promise<AddressInfo | null> {
-    if (typeof opts === 'function') {
-      healthCheck = opts;
-      opts = {};
+  private static ready = false;
+
+  private static _healthCheck(res: ServerResponse, healthCheck?: healthCheckFunction): void {
+    if (!healthCheck) {
+      res.end('OK');
+      return;
     }
+    try {
+      const check = healthCheck();
+      if (check instanceof Promise) {
+        check
+          .then(() => {
+            res.end('OK');
+          })
+          .catch(e => {
+            res.writeHead(500, { 'x-error': e.message });
+            res.end('KO');
+          });
+      } else {
+        res.end('OK');
+      }
+    } catch (e) {
+      res.writeHead(500, { 'x-error': e.message });
+      res.end('KO');
+    }
+  }
+
+  private static _readinessCheck(res: ServerResponse, readinessCheck?: readinessCheckFunction): void {
+    function reply(ready: boolean) {
+      if (ready) {
+        res.end('OK');
+      } else {
+        res.writeHead(503, { 'x-error': 'Not ready' });
+        res.end('KO');
+      }
+    }
+    if (!readinessCheck) {
+      reply(HealthzServer.ready);
+      return;
+    }
+    try {
+      const check = readinessCheck();
+      if (check instanceof Promise) {
+        check
+          .then(ready => {
+            reply(ready);
+          })
+          .catch(e => {
+            res.writeHead(500, { 'x-error': e.message });
+            res.end('KO');
+          });
+      } else {
+        reply(check);
+      }
+    } catch (e) {
+      res.writeHead(500, { 'x-error': e.message });
+      res.end('KO');
+    }
+  }
+
+  static async start(
+    opts?: HealthzServerOptions,
+    healthCheck?: healthCheckFunction,
+    readinessCheck?: readinessCheckFunction
+  ): Promise<AddressInfo | null> {
     if (healthCheck) {
       if (typeof healthCheck !== 'function') {
         throw new Error('healthCheck must be a function');
       }
     }
-    const { path: PATH, address: ADDRESS, port: PORT } = Object.assign({}, defaultOptions, opts);
+    if (readinessCheck) {
+      if (typeof readinessCheck !== 'function') {
+        throw new Error('readinessCheck must be a function');
+      }
+    }
+
+    const {
+      path: OLD_PATH,
+      healthzPath,
+      readinessPath,
+      address: ADDRESS,
+      port: PORT
+    } = Object.assign({}, defaultOptions, opts);
+    const HEALTHZ_PATH = OLD_PATH ?? healthzPath;
     if (_global[healthServerSymbol]) {
       return Promise.resolve(null);
     }
     _global[healthServerSymbol] = createServer((req, res) => {
-      if (req.url === PATH) {
-        if (!healthCheck) {
-          res.end('OK');
-          return;
-        }
-        try {
-          const check = healthCheck();
-          if (check instanceof Promise) {
-            check
-              .then(() => {
-                res.end('OK');
-              })
-              .catch(e => {
-                res.writeHead(500, { 'x-error': e.message });
-                res.end('KO');
-              });
-          } else {
-            res.end('OK');
-          }
-        } catch (e) {
-          res.writeHead(500, { 'x-error': e.message });
-          res.end('KO');
-        }
+      if (req.url === HEALTHZ_PATH) {
+        HealthzServer._healthCheck(res, healthCheck);
+      } else if (req.url === readinessPath) {
+        HealthzServer._readinessCheck(res, readinessCheck);
       } else {
         res.writeHead(404);
         res.end('Not Found');
@@ -95,9 +147,14 @@ export class HealthzServer {
     });
   }
 
+  static setReady(ready: boolean) {
+    HealthzServer.ready = ready;
+  }
+
   static async stop() {
     process.off('SIGTERM', HealthzServer.stop);
     process.off('SIGINT', HealthzServer.stop);
+    HealthzServer.ready = false;
     return new Promise(resolve => {
       if (_global[healthServerSymbol]) {
         _global[healthServerSymbol].close(() => {
