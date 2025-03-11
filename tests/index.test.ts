@@ -32,7 +32,19 @@ describe('HealthServer', () => {
     assert.equal(d, undefined);
   });
 
-  it('should start HealthServer without check', async () => {
+  it('should throw error if start is called with wrong argument (healthzCheck)', async () => {
+    // @ts-expect-error testing wrong argument
+    await expect(() => HealthzServer.start({ port: 0 }, {})).rejects.toThrow('healthCheck must be a function');
+  });
+
+  it('should throw error if start is called with wrong argument (readinessCheck)', async () => {
+    // @ts-expect-error testing wrong argument
+    await expect(() => HealthzServer.start({ port: 0 }, undefined, {})).rejects.toThrow(
+      'readinessCheck must be a function'
+    );
+  });
+
+  it('should start HealthServer with default options', async () => {
     const addressInfo = await HealthzServer.start({ port: 0 });
     assert.ok(addressInfo);
     const { port } = addressInfo;
@@ -42,9 +54,15 @@ describe('HealthServer', () => {
     const e = await fetch(`http://localhost:${port}/xxxx`);
     assert.equal(e.status, 404);
     assert.equal(await e.text(), 'Not Found');
+    // by default readinessPath is / and server not ready
+    let r = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(r.status, 503);
+    HealthzServer.setReady(true);
+    r = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(r.status, 200);
   });
 
-  it('should start HealthServer with check', async () => {
+  it('should start HealthServer with healthCheck custom function', async () => {
     let cbCalled = false;
     const addressInfo = await HealthzServer.start({ port: 0 }, () => {
       cbCalled = true;
@@ -57,7 +75,7 @@ describe('HealthServer', () => {
     assert.ok(cbCalled);
   });
 
-  it('should start HealthServer with check Error', async () => {
+  it('should start HealthServer with healthCheck custom function (Error)', async () => {
     let cbCalled = false;
     const addressInfo = await HealthzServer.start({ port: 0 }, () => {
       cbCalled = true;
@@ -71,7 +89,7 @@ describe('HealthServer', () => {
     assert.ok(cbCalled);
   });
 
-  it('should start HealthServer with check (promise)', async () => {
+  it('should start HealthServer with healthCheck custom function (promise)', async () => {
     let checkCalled = false;
     const addressInfo = await HealthzServer.start({ port: 0 }, async () => {
       await setTimeout(100);
@@ -85,7 +103,7 @@ describe('HealthServer', () => {
     assert.ok(checkCalled);
   });
 
-  it('should start HealthServer with check Error (promise)', async () => {
+  it('should start HealthServer with healthCheck custom function (promise)(Error)', async () => {
     let checkCalled = false;
     const addressInfo = await HealthzServer.start({ port: 0 }, async () => {
       await setTimeout(100);
@@ -100,8 +118,89 @@ describe('HealthServer', () => {
     assert.ok(checkCalled);
   });
 
-  it('should start HealthServer with options', async () => {
-    const addressInfo = await HealthzServer.start({ port: 0, path: '/healthz2' });
+  it('should start HealthServer with readinessCheck custom function (ready) (promise)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, async () => {
+      await setTimeout(100);
+      checkCalled = true;
+      return true;
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 200);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with readinessCheck custom function (not ready) (promise)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, async () => {
+      await setTimeout(100);
+      checkCalled = true;
+      return false;
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 503);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with readinessCheck custom function (error) (promise)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, async () => {
+      await setTimeout(100);
+      checkCalled = true;
+      throw new Error('Error');
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 500);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with readinessCheck custom function (ready)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, () => {
+      checkCalled = true;
+      return true;
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 200);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with readinessCheck custom function (not ready)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, () => {
+      checkCalled = true;
+      return false;
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 503);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with readinessCheck custom function (error)', async () => {
+    let checkCalled = false;
+    const addressInfo = await HealthzServer.start({ port: 0 }, undefined, () => {
+      checkCalled = true;
+      throw new Error('Error');
+    });
+    assert.ok(addressInfo);
+    const { port } = addressInfo;
+    const f = await fetch(`http://localhost:${port}/`, fetchOptions);
+    assert.equal(f.status, 500);
+    assert.ok(checkCalled);
+  });
+
+  it('should start HealthServer with custom options', async () => {
+    const addressInfo = await HealthzServer.start({ port: 0, healthzPath: '/healthz2', readinessPath: '/readiness' });
     assert.ok(addressInfo);
     const { port } = addressInfo;
     const f = await fetch(`http://localhost:${port}/healthz2`, fetchOptions);
@@ -110,5 +209,12 @@ describe('HealthServer', () => {
     const e = await fetch(`http://localhost:${port}/healthz`);
     assert.equal(e.status, 404);
     assert.equal(await e.text(), 'Not Found');
+    let r = await fetch(`http://localhost:${port}/`);
+    assert.equal(r.status, 404);
+    r = await fetch(`http://localhost:${port}/readiness`);
+    assert.equal(r.status, 503);
+    HealthzServer.setReady(true);
+    r = await fetch(`http://localhost:${port}/readiness`);
+    assert.equal(r.status, 200);
   });
 });

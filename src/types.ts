@@ -15,12 +15,17 @@
  */
 
 export interface HealthzServerOptions {
+  // @deprecated in favor of healthzPath
   path?: string;
+  healthzPath?: string;
+  readinessPath?: string;
   port?: number;
   address?: string;
 }
 
-export type checkFunction = () => void | Promise<void>;
+export type healthCheckFunction = () => void | Promise<void>;
+
+export type readinessCheckFunction = () => boolean | Promise<boolean>;
 
 export interface AddressInfo {
   port: number;
