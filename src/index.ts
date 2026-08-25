@@ -108,7 +108,14 @@ export class HealthzServer {
         throw new Error('readinessCheck must be a function');
       }
     }
-
+    // remove all undefined values from opts, so we can use default values
+    if (opts) {
+      Object.keys(opts).forEach(key => {
+        if (key in opts && opts[key as keyof HealthzServerOptions] === undefined) {
+          delete opts[key as keyof HealthzServerOptions];
+        }
+      });
+    }
     const {
       path: OLD_PATH,
       healthzPath,
