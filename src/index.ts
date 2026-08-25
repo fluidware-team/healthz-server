@@ -156,11 +156,19 @@ export class HealthzServer {
 
   static setReady(ready: boolean) {
     HealthzServer.ready = ready;
+    if (ready) {
+      process.once('SIGUSR1', HealthzServer.unready);
+    } else {
+      process.off('SIGUSR1', HealthzServer.unready);
+    }
   }
 
   static async stop() {
     process.off('SIGTERM', HealthzServer.stop);
     process.off('SIGINT', HealthzServer.stop);
+    if (HealthzServer.ready) {
+      process.off('SIGUSR1', HealthzServer.unready);
+    }
     HealthzServer.ready = false;
     return new Promise(resolve => {
       if (_global[healthServerSymbol]) {
@@ -172,5 +180,9 @@ export class HealthzServer {
         resolve(true);
       }
     });
+  }
+
+  private static unready() {
+    HealthzServer.ready = false;
   }
 }
